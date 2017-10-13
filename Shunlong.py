@@ -43,6 +43,8 @@ class ShunlongWin(StrategyBase):
         self.dailyBar = pd.DataFrame( columns=['strdatetime', 'utcdatetime', 'open', 'high', 'low', 'close', 'position', 'volume'])  # 保存原始的1分钟Bar数据
         self.dailyBarMin = pd.DataFrame(columns=['strdatetime', 'utcdatetime', 'open', 'high', 'low', 'close', 'position','volume'])  # 保存多分钟合并的Bar数据，分钟数由K_min确定
         self.MA = pd.DataFrame(columns=['strdatetime', 'utcdatetime', 'close', 'MA'])
+        self.MACD = pd.DataFrame(columns=['strdatetime', 'utcdatetime', 'close', 'MACD', 'DEA', 'HIST', 'sema', 'lema'])
+        self.WMAweight=[0.005,0.010,0.014,0.019,0.024,0.029,0.033,0.038,0.043,0.048,0.052,0.057,0.062,0.067,0.071,0.076,0.081,0.086,0.090,0.095]
 
         self.trendList = []  # 用来保存每一次趋势判断的情况
         self.buyMarketList = []  # 用来保存每一次买趋势的内容，包序号，x轴位置，时间，最高价，最低价，现价，类型
@@ -80,6 +82,7 @@ class ShunlongWin(StrategyBase):
         self.dailyBar.to_csv('backtestdailyBar.csv')
         self.dailyBarMin.to_csv('backtestdailyBarMin.csv')
         self.MA.to_csv('backtestMA.csv')
+        self.MACD.to_csv('backtestMACD.csv')
         self.buyInfo.to_csv('backtestBuyinfo.csv')
         pass
 
@@ -94,6 +97,7 @@ class ShunlongWin(StrategyBase):
         if (barMin+1) % self.K_min==0 and self.K_minCounter>=self.K_min:
             self.update_dailyBarMin(bar)
             self.updateMA()
+            self.updateMACD()
             self.trendJudge()#趋势判断，在趋势判断中会给出buyFlag
             if self.buyFlag==1 :                             #买
                 self.buyJudge(bar)
@@ -123,6 +127,7 @@ class ShunlongWin(StrategyBase):
             if rownum % self.K_min == 0 and rownum >= self.K_min:
                 self.update_dailyBarMin(bar)
         self.prepareMA()
+        self.prepareMACD()
 
         krow = self.dailyBarMin.shape[0]
         lastclose = self.dailyBarMin.ix[krow - 1, 'close']
@@ -230,10 +235,12 @@ class ShunlongWin(StrategyBase):
                 if p.side==OrderSide_Ask:
                     self.close_short(self.exchange_id,self.sec_id,0,p.volume)
 
-        self.open_long(self.exchange_id, self.sec_id, 0, 1)
-        self.buyMarketList[-1]['result'] = 'buy success'
-        print 'buy success'
-        self.positionHold = self.get_positions()
+        macdrow=self.MACD.shape[0]
+        if self.MACD.ix[macdrow-1,'MACD']>self.MACD.ix[macdrow-1,'DEA']:
+            self.open_long(self.exchange_id, self.sec_id, 0, 1)
+            self.buyMarketList[-1]['result'] = 'buy success'
+            print 'buy success'
+            self.positionHold = self.get_positions()
 
 
 
@@ -242,10 +249,13 @@ class ShunlongWin(StrategyBase):
             for p in self.positionHold:
                 if p.side==OrderSide_Bid:
                     self.close_long(self.exchange_id,self.sec_id,0,p.volume)
-        self.open_short(self.exchange_id, self.sec_id, 0, 1)
-        self.sellMarketList[-1]['result'] = 'sell success'
-        print 'sell success'
-        self.positionHold = self.get_positions()
+
+        macdrow=self.MACD.shape[0]
+        if self.MACD.ix[macdrow-1,'MACD']<self.MACD.ix[macdrow-1,'DEA']:
+            self.open_short(self.exchange_id, self.sec_id, 0, 1)
+            self.sellMarketList[-1]['result'] = 'sell success'
+            print 'sell success'
+            self.positionHold = self.get_positions()
 
     def prepareMA(self):
         '''
@@ -257,6 +267,22 @@ class ShunlongWin(StrategyBase):
         self.MA['utcdatetime'] = self.dailyBarMin['utcdatetime']
         self.MA['close'] = self.dailyBarMin['close']
         self.MA['MA'] = ma.calMA(self.MA['close'],self.MA_N)
+        #self.MA['MA']=ma.calWMA(self.MA['close'],self.WMAweight,self.MA_N)
+
+    def prepareMACD(self):
+        '''
+        在dataPrepare准备完后，一次计算已有数据的MACD，保存到self.MACD中
+        self.MACD=pd.DataFrame(columns=['strdatetime','utcdatetime','close','MACD','DEA','HIST','sema','lema'])
+        :return:
+        '''
+        self.MACD['strdatetime']=self.dailyBarMin['strdatetime']
+        self.MACD['utcdatetime']=self.dailyBarMin['utcdatetime']
+        self.MACD['close']=self.dailyBarMin['close']
+        self.MACD['MACD'],self.MACD['DEA'],self.MACD['HIST'],self.MACD['sema'],self.MACD['lema']\
+            =ma.calMACD(self.MACD['close'])
+        pass
+
+
 
     def updateMA(self):
         '''
@@ -270,9 +296,26 @@ class ShunlongWin(StrategyBase):
         lastutcdatetime = self.dailyBarMin.ix[brow - 1, 'utcdatetime']
         lastClose=self.dailyBarMin.ix[brow-1,'close']
         lastma=ma.calNewMA(self.dailyBarMin['close'],self.MA_N)
+        #lastma=ma.calNewWMA(self.dailyBarMin['close'],self.WMAweight,self.MA_N)
         self.MA.loc[mrow] = [laststrdatetime,lastutcdatetime, lastClose, lastma]
         pass
 
+    def updateMACD(self):
+        '''
+        根据dailyBarMin最后一行的数据，计算出新的MACD，并更新到MACD表中
+        :return:
+        '''
+        brow=self.dailyBarMin.shape[0]
+        mrow=self.MACD.shape[0]
+        laststrdatetime=self.dailyBarMin.ix[brow-1,'strdatetime']
+        lastutcdatetime = self.dailyBarMin.ix[brow - 1, 'utcdatetime']
+        lastClose=self.dailyBarMin.ix[brow-1,'close']
+        lastdea=self.MACD.ix[mrow-1,'DEA']
+        lastsema=self.MACD.ix[mrow-1,'sema']
+        lastlema=self.MACD.ix[mrow-1,'lema']
+        macd,dea,hist,sema,lema=ma.calNewMACD(lastClose,lastdea,lastsema,lastlema)
+        self.MACD.loc[mrow] = [laststrdatetime,lastutcdatetime, lastClose, macd, dea, hist, sema,lema]
+        pass
 
 if __name__ == '__main__':
     ini_file = sys.argv[1] if len(sys.argv) > 1 else 'meanWin.ini'

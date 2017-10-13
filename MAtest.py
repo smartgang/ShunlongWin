@@ -99,6 +99,38 @@ def calNewMA(data,N=5):
     row=data.shape[0]
     return sum(data[row-N:row])/N
 
+def calWMA(data,weight,N=5):
+    '''
+    计算加权移动平均
+    :param data:
+    :param weight:
+    :param N:
+    :return:
+    '''
+    l=len(weight)
+    d=data
+    dl=d.shape[0]
+    if l!=N:return
+    arrWeight=np.array(weight)
+    wma=pd.Series(0.0)
+    for i in range(l-1,dl):
+        wma[i]=sum(arrWeight*d[(i-l+1):(i+1)])
+    return wma
+
+def calNewWMA(data,weight,N=5):
+    '''
+    计算最后一个WMA的值
+    :param data:
+    :param weight:
+    :param N:
+    :return:
+    '''
+    l=len(weight)
+    dl=data.shape[0]
+    if l!=N:return
+    arrWeight=np.array(weight)
+    return sum(arrWeight*data[dl-N:dl])
+
 def get_rsi_data(data, N=0):
     if N == 0:
         N = 24
